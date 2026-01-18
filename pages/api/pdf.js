@@ -1,6 +1,5 @@
 // pages/api/pdf.js
-// Server-side PDF generation (Local + Vercel)
-// Uses Puppeteer to render HTML -> PDF (Arabic renders correctly)
+// Generates a PDF server-side with Arabic text (works locally + Vercel)
 
 import puppeteer from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
@@ -10,17 +9,18 @@ export default async function handler(req, res) {
 
   try {
     const arabicText = "مرحبا بالعالم";
-    const isVercel = !!process.env.VERCEL;
+    const isVercel = process.env.VERCEL === "1";
 
-    // Local Edge path (since you use Edge)
-    const localEdgePath =
-      "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+    // ✅ Correct executable path for each environment
+    const executablePath = isVercel
+      ? await chromium.executablePath()
+      : "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"; // Local Edge
 
     browser = await puppeteer.launch({
       args: isVercel
         ? chromium.args
         : ["--no-sandbox", "--disable-setuid-sandbox"],
-      executablePath: isVercel ? await chromium.executablePath() : localEdgePath,
+      executablePath,
       headless: true,
     });
 
@@ -38,12 +38,12 @@ export default async function handler(req, res) {
               display: flex;
               justify-content: center;
               align-items: center;
-              background: white;
+              background: #fff;
               direction: rtl;
-              font-family: Arial, sans-serif;
             }
             .text {
-              font-size: 48px;
+              font-size: 60px;
+              font-family: Arial, sans-serif;
               font-weight: 500;
             }
           </style>
@@ -54,25 +54,21 @@ export default async function handler(req, res) {
       </html>
     `;
 
-    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.setContent(html, { waitUntil: "load" });
 
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
     });
 
-    // VERY IMPORTANT: send correct headers + end response properly
-    res.statusCode = 200;
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", 'inline; filename="arabic.pdf"');
-    res.setHeader("Content-Length", pdfBuffer.length);
+    res.setHeader("Content-Disposition", 'attachment; filename="arabic.pdf"');
 
-    res.end(pdfBuffer);
+    return res.status(200).end(pdfBuffer);
   } catch (error) {
     console.error("PDF error:", error);
 
-    // Return JSON so we can see the real error
-    res.status(500).json({
+    return res.status(500).json({
       error: "Failed to generate PDF",
       message: error.message,
     });
