@@ -1,29 +1,47 @@
 // pages/api/pdf.js
-import fs from "fs";
-import path from "path";
+// Server-side PDF generation (Local + Vercel)
+// Uses puppeteer-core + @sparticuz/chromium for Vercel, and local Edge for localhost.
+// IMPORTANT: We embed Amiri font so Arabic renders correctly on Vercel too.
+
 import puppeteer from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
-import { getChromiumExecutablePath } from "../../lib/getChromiumPath";
 
 export default async function handler(req, res) {
   let browser;
 
   try {
     const arabicText = "مرحبا بالعالم";
+    const isVercel = !!process.env.VERCEL;
 
-    const executablePath = await getChromiumExecutablePath();
-
-    // Read font file from public/fonts
-    const fontPath = path.join(process.cwd(), "public", "fonts", "Amiri-Regular.ttf");
-    const fontBase64 = fs.readFileSync(fontPath).toString("base64");
+    // Use Vercel-compatible Chromium path on Vercel
+    // Use Edge path on localhost
+    const executablePath = isVercel
+      ? await chromium.executablePath()
+      : "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
     browser = await puppeteer.launch({
-      args: process.env.VERCEL ? chromium.args : ["--no-sandbox"],
+      args: isVercel
+        ? chromium.args
+        : ["--no-sandbox", "--disable-setuid-sandbox"],
       executablePath,
-      headless: true,
+      headless: isVercel ? chromium.headless : true,
     });
 
     const page = await browser.newPage();
+
+    // ✅ Use absolute URL so it works on Vercel + Local
+    const host = req.headers.host;
+    const protocol = host?.includes("localhost") ? "http" : "https";
+    const fontUrl = `${protocol}://${host}/fonts/Amiri-Regular.ttf`;
+
+    // ✅ Fetch the font and embed as base64 (prevents Vercel font loading issues)
+    const fontResponse = await fetch(fontUrl);
+    if (!fontResponse.ok) {
+      throw new Error(`Failed to load font from ${fontUrl}`);
+    }
+
+    const fontArrayBuffer = await fontResponse.arrayBuffer();
+    const fontBase64 = Buffer.from(fontArrayBuffer).toString("base64");
 
     const html = `
       <!DOCTYPE html>
@@ -32,8 +50,8 @@ export default async function handler(req, res) {
           <meta charset="UTF-8" />
           <style>
             @font-face {
-              font-family: "AmiriCustom";
-              src: url(data:font/ttf;base64,${fontBase64}) format("truetype");
+              font-family: "Amiri";
+              src: url("data:font/ttf;base64,${fontBase64}") format("truetype");
               font-weight: normal;
               font-style: normal;
             }
@@ -46,14 +64,13 @@ export default async function handler(req, res) {
               justify-content: center;
               background: white;
               direction: rtl;
+              font-family: "Amiri", Arial, sans-serif;
             }
 
             .text {
-              font-family: "AmiriCustom";
-              font-size: 70px;
-              font-weight: normal;
+              font-size: 60px;
+              font-weight: 400;
               line-height: 1;
-              color: black;
             }
           </style>
         </head>
@@ -63,7 +80,10 @@ export default async function handler(req, res) {
       </html>
     `;
 
-    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.setContent(html, { waitUntil: "domcontentloaded" });
+
+    // ✅ Wait for fonts to be ready before generating PDF
+    await page.evaluate(() => document.fonts.ready);
 
     const pdfBuffer = await page.pdf({
       format: "A4",
@@ -71,12 +91,16 @@ export default async function handler(req, res) {
       preferCSSPageSize: true,
     });
 
+    res.statusCode = 200;
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", 'attachment; filename="arabic.pdf"');
-    res.status(200).send(pdfBuffer);
+    res.setHeader("Content-Length", pdfBuffer.length);
+
+    return res.end(pdfBuffer);
   } catch (error) {
     console.error("PDF error:", error);
-    res.status(500).json({
+
+    return res.status(500).json({
       error: "Failed to generate PDF",
       message: error.message,
     });
