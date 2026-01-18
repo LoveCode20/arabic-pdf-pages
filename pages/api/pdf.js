@@ -11,8 +11,8 @@ export default async function handler(req, res) {
   try {
     const arabicText = "مرحبا بالعالم";
 
-    // Detect local vs production (Vercel/Netlify)
-    const isProduction = process.env.NODE_ENV === "production";
+    // Vercel/Serverless detection (more reliable than NODE_ENV)
+    const isServerless = !!process.env.VERCEL;
 
     // Local Windows (Microsoft Edge)
     const edgePath =
@@ -20,16 +20,22 @@ export default async function handler(req, res) {
 
     // Launch browser
     browser = await puppeteer.launch(
-      isProduction
+      isServerless
         ? {
-            // Production (serverless) config
-            args: chromium.args,
+            // ✅ Vercel/serverless config
+            args: [
+              ...chromium.args,
+              "--no-sandbox",
+              "--disable-setuid-sandbox",
+              "--disable-dev-shm-usage",
+              "--disable-gpu",
+            ],
             defaultViewport: chromium.defaultViewport,
             executablePath: await chromium.executablePath(),
-            headless: chromium.headless,
+            headless: chromium.headless, // keep sparticuz recommended headless
           }
         : {
-            // Local config
+            // ✅ Local config
             headless: "new",
             executablePath: edgePath,
             args: ["--no-sandbox", "--disable-setuid-sandbox"],
@@ -82,6 +88,9 @@ export default async function handler(req, res) {
       })
     );
   } finally {
-    if (browser) await browser.close();
+    // Close browser safely
+    try {
+      if (browser) await browser.close();
+    } catch (e) {}
   }
 }
