@@ -1,28 +1,20 @@
 // pages/api/pdf.js
 // Server-side PDF generation (Local + Vercel)
-// Uses puppeteer-core + @sparticuz/chromium on Vercel
-// Uses local Edge on localhost
-// FIX: Proper Arabic shaping using arabic-persian-reshaper + bidi-js
+// Uses puppeteer-core + @sparticuz/chromium for Vercel, and local Edge for localhost.
+// IMPORTANT: We embed Amiri font so Arabic renders correctly on Vercel too.
 
 import puppeteer from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
-import reshape from "arabic-persian-reshaper";
-import bidi from "bidi-js";
 
 export default async function handler(req, res) {
   let browser;
 
   try {
-    const rawArabicText = "مرحبا بالعالم";
+    const arabicText = "مرحبا بالعالم";
     const isVercel = !!process.env.VERCEL;
 
-    // ✅ 1) Shape Arabic letters properly (joins letters)
-    const reshaped = reshape(rawArabicText);
-
-    // ✅ 2) Convert to RTL visual order (so it displays correctly)
-    const bidiEngine = bidi();
-    const finalArabicText = bidiEngine.getDisplay(reshaped);
-
+    // Use Vercel-compatible Chromium path on Vercel
+    // Use Edge path on localhost
     const executablePath = isVercel
       ? await chromium.executablePath()
       : "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
@@ -37,10 +29,19 @@ export default async function handler(req, res) {
 
     const page = await browser.newPage();
 
-    // ✅ Load font from your public folder (works on local + vercel)
+    // ✅ Use absolute URL so it works on Vercel + Local
     const host = req.headers.host;
     const protocol = host?.includes("localhost") ? "http" : "https";
     const fontUrl = `${protocol}://${host}/fonts/Amiri-Regular.ttf`;
+
+    // ✅ Fetch the font and embed as base64 (prevents Vercel font loading issues)
+    const fontResponse = await fetch(fontUrl);
+    if (!fontResponse.ok) {
+      throw new Error(`Failed to load font from ${fontUrl}`);
+    }
+
+    const fontArrayBuffer = await fontResponse.arrayBuffer();
+    const fontBase64 = Buffer.from(fontArrayBuffer).toString("base64");
 
     const html = `
       <!DOCTYPE html>
@@ -50,7 +51,7 @@ export default async function handler(req, res) {
           <style>
             @font-face {
               font-family: "Amiri";
-              src: url("${fontUrl}") format("truetype");
+              src: url("data:font/ttf;base64,${fontBase64}") format("truetype");
               font-weight: normal;
               font-style: normal;
             }
@@ -62,30 +63,35 @@ export default async function handler(req, res) {
               align-items: center;
               justify-content: center;
               background: white;
+              direction: rtl;
+              font-family: "Amiri", Arial, sans-serif;
             }
 
             .text {
-              font-family: "Amiri", serif;
               font-size: 60px;
               font-weight: 400;
+              line-height: 1;
             }
           </style>
         </head>
         <body>
-          <div class="text">${finalArabicText}</div>
+          <div class="text">${arabicText}</div>
         </body>
       </html>
     `;
 
-    await page.setContent(html, { waitUntil: "networkidle0" });
-    await page.evaluateHandle("document.fonts.ready");
+    await page.setContent(html, { waitUntil: "domcontentloaded" });
+
+    // ✅ Wait for fonts to be ready before generating PDF
+    await page.evaluate(() => document.fonts.ready);
 
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
+      preferCSSPageSize: true,
     });
 
-    res.status(200);
+    res.statusCode = 200;
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", 'attachment; filename="arabic.pdf"');
     res.setHeader("Content-Length", pdfBuffer.length);
@@ -93,6 +99,7 @@ export default async function handler(req, res) {
     return res.end(pdfBuffer);
   } catch (error) {
     console.error("PDF error:", error);
+
     return res.status(500).json({
       error: "Failed to generate PDF",
       message: error.message,
