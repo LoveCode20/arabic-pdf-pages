@@ -18,21 +18,26 @@ export default async function handler(req, res) {
     const edgePath =
       "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
+    // ✅ IMPORTANT FIX FOR VERCEL:
+    // Tell sparticuz/chromium where its brotli files live.
+    // On Vercel, this path works because it's bundled in the function runtime.
+    if (isServerless) {
+      chromium.setHeadlessMode = true;
+      chromium.setGraphicsMode = false;
+
+      // 👇 this is the key fix
+      chromium.executablePath = await chromium.executablePath("/tmp");
+    }
+
     // Launch browser
     browser = await puppeteer.launch(
       isServerless
         ? {
             // ✅ Vercel/serverless config
-            args: [
-              ...chromium.args,
-              "--no-sandbox",
-              "--disable-setuid-sandbox",
-              "--disable-dev-shm-usage",
-              "--disable-gpu",
-            ],
+            args: chromium.args,
             defaultViewport: chromium.defaultViewport,
             executablePath: await chromium.executablePath(),
-            headless: chromium.headless, // keep sparticuz recommended headless
+            headless: chromium.headless,
           }
         : {
             // ✅ Local config
