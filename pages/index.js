@@ -1,10 +1,28 @@
 // pages/index.js
 // Generates + downloads PDF from /api/pdf
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function Home() {
   const [loading, setLoading] = useState(false);
+
+  // ✅ Add spinner animation safely (runs only in browser after page mounts)
+  useEffect(() => {
+    const styleId = "spinner-keyframes-style";
+
+    // Prevent duplicates
+    if (document.getElementById(styleId)) return;
+
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.innerHTML = `
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+    `;
+    document.head.appendChild(style);
+  }, []);
 
   const generatePdf = async () => {
     try {
@@ -294,18 +312,3 @@ const styles = {
     textAlign: "center",
   },
 };
-
-/**
- * Small CSS animation injection (so spinner works without extra files)
- * This is safe and minimal.
- */
-if (typeof document !== "undefined") {
-  const style = document.createElement("style");
-  style.innerHTML = `
-    @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-  `;
-  document.head.appendChild(style);
-}
