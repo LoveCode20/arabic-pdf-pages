@@ -1,5 +1,6 @@
 // pages/api/pdf.js
-// Generates a PDF server-side with Arabic text (works locally + Vercel)
+// Server-side PDF generation (Local + Vercel)
+// Uses puppeteer-core + @sparticuz/chromium for Vercel, and local Edge for localhost.
 
 import puppeteer from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
@@ -9,26 +10,28 @@ export default async function handler(req, res) {
 
   try {
     const arabicText = "مرحبا بالعالم";
+    const isVercel = !!process.env.VERCEL;
 
-    // Vercel sets these env vars automatically
-    const isVercel =
-      process.env.VERCEL === "1" || process.env.VERCEL_ENV !== undefined;
-
-    // ✅ Correct executable path for each environment
+    // Use Vercel-compatible Chromium path on Vercel
+    // Use Edge path on localhost
     const executablePath = isVercel
       ? await chromium.executablePath()
-      : "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"; // Local Edge
+      : "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
     browser = await puppeteer.launch({
       args: isVercel
         ? chromium.args
         : ["--no-sandbox", "--disable-setuid-sandbox"],
+
       executablePath,
+
+      // ✅ IMPORTANT: Vercel requires chromium.headless
       headless: isVercel ? chromium.headless : true,
     });
 
     const page = await browser.newPage();
 
+    // Arabic direction + center alignment
     const html = `
       <!DOCTYPE html>
       <html lang="ar" dir="rtl">
@@ -39,14 +42,14 @@ export default async function handler(req, res) {
               margin: 0;
               height: 100vh;
               display: flex;
-              justify-content: center;
               align-items: center;
-              background: #fff;
+              justify-content: center;
+              background: white;
               direction: rtl;
+              font-family: Arial, sans-serif;
             }
             .text {
               font-size: 60px;
-              font-family: Arial, sans-serif;
               font-weight: 500;
             }
           </style>
@@ -57,17 +60,20 @@ export default async function handler(req, res) {
       </html>
     `;
 
-    await page.setContent(html, { waitUntil: "load" });
+    await page.setContent(html, { waitUntil: "networkidle0" });
 
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
     });
 
+    // ✅ Always set headers BEFORE sending PDF
+    res.statusCode = 200;
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", 'attachment; filename="arabic.pdf"');
+    res.setHeader("Content-Length", pdfBuffer.length);
 
-    return res.status(200).end(pdfBuffer);
+    return res.end(pdfBuffer);
   } catch (error) {
     console.error("PDF error:", error);
 
