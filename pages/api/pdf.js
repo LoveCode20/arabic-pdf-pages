@@ -1,6 +1,7 @@
 // pages/api/pdf.js
 // Generates a PDF on the SERVER and returns it as a download.
-// Contains one hard-coded Arabic sentence: "مرحبا بالعالم"
+// Hard-coded Arabic sentence: "مرحبا بالعالم"
+// Works on Local (Edge) + Vercel (sparticuz/chromium)
 
 import puppeteer from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
@@ -10,37 +11,22 @@ export default async function handler(req, res) {
 
   try {
     const arabicText = "مرحبا بالعالم";
-
-    // Vercel/Serverless detection (more reliable than NODE_ENV)
     const isServerless = !!process.env.VERCEL;
 
-    // Local Windows (Microsoft Edge)
+    // Local Windows Edge path
     const edgePath =
       "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
-    // ✅ IMPORTANT FIX FOR VERCEL:
-    // Tell sparticuz/chromium where its brotli files live.
-    // On Vercel, this path works because it's bundled in the function runtime.
-    if (isServerless) {
-      chromium.setHeadlessMode = true;
-      chromium.setGraphicsMode = false;
-
-      // 👇 this is the key fix
-      chromium.executablePath = await chromium.executablePath("/tmp");
-    }
-
-    // Launch browser
+    // Launch browser (Vercel uses sparticuz chromium, local uses Edge)
     browser = await puppeteer.launch(
       isServerless
         ? {
-            // ✅ Vercel/serverless config
             args: chromium.args,
             defaultViewport: chromium.defaultViewport,
             executablePath: await chromium.executablePath(),
             headless: chromium.headless,
           }
         : {
-            // ✅ Local config
             headless: "new",
             executablePath: edgePath,
             args: ["--no-sandbox", "--disable-setuid-sandbox"],
@@ -49,51 +35,74 @@ export default async function handler(req, res) {
 
     const page = await browser.newPage();
 
-    // Minimal HTML with Arabic RTL support
+    // ✅ IMPORTANT: Use your font from /public/fonts/Amiri-Regular.ttf
+    // This guarantees Arabic renders the same on Local + Vercel
     const html = `
       <!doctype html>
       <html lang="ar" dir="rtl">
         <head>
           <meta charset="utf-8" />
           <style>
+            @font-face {
+              font-family: "Amiri";
+              src: url("/fonts/Amiri-Regular.ttf") format("truetype");
+              font-weight: normal;
+              font-style: normal;
+            }
+
+            html, body {
+              margin: 0;
+              padding: 0;
+              width: 100%;
+              height: 100%;
+              background: #ffffff;
+            }
+
             body {
-              font-family: Arial, sans-serif;
+              display: flex;
+              align-items: center;
+              justify-content: center;
               direction: rtl;
               text-align: center;
-              margin-top: 250px;
-              font-size: 48px;
+              font-family: "Amiri", serif;
+            }
+
+            .text {
+              font-size: 60px;
+              font-weight: 400;
+              color: #000;
+              line-height: 1.2;
             }
           </style>
         </head>
-        <body>${arabicText}</body>
+        <body>
+          <div class="text">${arabicText}</div>
+        </body>
       </html>
     `;
 
-    await page.setContent(html, { waitUntil: "load" });
+    await page.setContent(html, { waitUntil: "networkidle0" });
 
+    // Generate PDF
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
+      preferCSSPageSize: true,
     });
 
-    // Return raw PDF bytes
-    res.statusCode = 200;
+    // Return PDF
+    res.status(200);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", "attachment; filename=arabic.pdf");
     res.end(pdfBuffer);
   } catch (err) {
     console.log("PDF error:", err);
 
-    res.statusCode = 500;
-    res.setHeader("Content-Type", "application/json");
-    res.end(
-      JSON.stringify({
-        error: "Failed to generate PDF",
-        message: err?.message || String(err),
-      })
-    );
+    res.status(500).json({
+      error: "Failed to generate PDF",
+      message: err?.message || String(err),
+    });
   } finally {
-    // Close browser safely
     try {
       if (browser) await browser.close();
     } catch (e) {}
