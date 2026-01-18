@@ -1,77 +1,59 @@
+// pages/api/pdf.js
+// Server-side PDF generation (Local + Vercel)
+// Uses Puppeteer to render HTML -> PDF (Arabic renders correctly)
+
 import puppeteer from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
-import fs from "fs";
-import path from "path";
 
 export default async function handler(req, res) {
-  let browser = null;
+  let browser;
 
   try {
-    // Your Arabic sentence (hard-coded)
     const arabicText = "مرحبا بالعالم";
+    const isVercel = !!process.env.VERCEL;
 
-    // Load the Arabic font from public/fonts
-    const fontPath = path.join(
-      process.cwd(),
-      "public",
-      "fonts",
-      "Amiri-Regular.ttf"
-    );
+    // Local Edge path (since you use Edge)
+    const localEdgePath =
+      "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
-    const fontBase64 = fs.readFileSync(fontPath).toString("base64");
+    browser = await puppeteer.launch({
+      args: isVercel
+        ? chromium.args
+        : ["--no-sandbox", "--disable-setuid-sandbox"],
+      executablePath: isVercel ? await chromium.executablePath() : localEdgePath,
+      headless: true,
+    });
 
-    // HTML template for PDF
+    const page = await browser.newPage();
+
     const html = `
-      <html>
+      <!DOCTYPE html>
+      <html lang="ar" dir="rtl">
         <head>
-          <meta charset="utf-8" />
+          <meta charset="UTF-8" />
           <style>
-            @font-face {
-              font-family: "Amiri";
-              src: url(data:font/ttf;base64,${fontBase64}) format("truetype");
-            }
-
             body {
               margin: 0;
-              padding: 0;
+              height: 100vh;
               display: flex;
               justify-content: center;
               align-items: center;
-              height: 100vh;
-              font-family: "Amiri", serif;
+              background: white;
               direction: rtl;
+              font-family: Arial, sans-serif;
             }
-
-            h1 {
+            .text {
               font-size: 48px;
-              color: #000;
+              font-weight: 500;
             }
           </style>
         </head>
         <body>
-          <h1>${arabicText}</h1>
+          <div class="text">${arabicText}</div>
         </body>
       </html>
     `;
 
-    // Detect environment
-    const isVercel = !!process.env.VERCEL;
-
-    // Launch browser
-    browser = await puppeteer.launch(
-      isVercel
-        ? {
-            args: chromium.args,
-            defaultViewport: chromium.defaultViewport,
-            executablePath: await chromium.executablePath(),
-            headless: chromium.headless,
-          }
-        : {
-            headless: "new",
-          }
-    );
-
-    const page = await browser.newPage();
     await page.setContent(html, { waitUntil: "networkidle0" });
 
     const pdfBuffer = await page.pdf({
@@ -79,13 +61,21 @@ export default async function handler(req, res) {
       printBackground: true,
     });
 
-    // Return as downloadable PDF
+    // VERY IMPORTANT: send correct headers + end response properly
+    res.statusCode = 200;
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", 'attachment; filename="arabic.pdf"');
-    res.status(200).send(pdfBuffer);
+    res.setHeader("Content-Disposition", 'inline; filename="arabic.pdf"');
+    res.setHeader("Content-Length", pdfBuffer.length);
+
+    res.end(pdfBuffer);
   } catch (error) {
     console.error("PDF error:", error);
-    res.status(500).json({ error: "Failed to generate PDF", message: error.message });
+
+    // Return JSON so we can see the real error
+    res.status(500).json({
+      error: "Failed to generate PDF",
+      message: error.message,
+    });
   } finally {
     if (browser) await browser.close();
   }
