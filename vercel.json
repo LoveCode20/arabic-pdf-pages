@@ -2,7 +2,6 @@
   "functions": {
     "pages/api/pdf.js": {
       "maxDuration": 30,
-      "memory": 1024,
       "includeFiles": "node_modules/@sparticuz/chromium/**"
     }
   }
