@@ -1,20 +1,28 @@
 // pages/api/pdf.js
 // Server-side PDF generation (Local + Vercel)
-// Uses puppeteer-core + @sparticuz/chromium for Vercel, and local Edge for localhost.
-// IMPORTANT: We embed Amiri font so Arabic renders correctly on Vercel too.
+// Uses puppeteer-core + @sparticuz/chromium on Vercel
+// Uses local Edge on localhost
+// FIX: Proper Arabic shaping using arabic-persian-reshaper + bidi-js
 
 import puppeteer from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
+import reshape from "arabic-persian-reshaper";
+import bidi from "bidi-js";
 
 export default async function handler(req, res) {
   let browser;
 
   try {
-    const arabicText = "مرحبا بالعالم";
+    const rawArabicText = "مرحبا بالعالم";
     const isVercel = !!process.env.VERCEL;
 
-    // Use Vercel-compatible Chromium path on Vercel
-    // Use Edge path on localhost
+    // ✅ 1) Shape Arabic letters properly (joins letters)
+    const reshaped = reshape(rawArabicText);
+
+    // ✅ 2) Convert to RTL visual order (so it displays correctly)
+    const bidiEngine = bidi();
+    const finalArabicText = bidiEngine.getDisplay(reshaped);
+
     const executablePath = isVercel
       ? await chromium.executablePath()
       : "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
@@ -23,21 +31,17 @@ export default async function handler(req, res) {
       args: isVercel
         ? chromium.args
         : ["--no-sandbox", "--disable-setuid-sandbox"],
-
       executablePath,
-
-      // Vercel needs chromium.headless, local can be true
       headless: isVercel ? chromium.headless : true,
     });
 
     const page = await browser.newPage();
 
-    // ✅ Use absolute URL so it works on Vercel + Local
+    // ✅ Load font from your public folder (works on local + vercel)
     const host = req.headers.host;
     const protocol = host?.includes("localhost") ? "http" : "https";
     const fontUrl = `${protocol}://${host}/fonts/Amiri-Regular.ttf`;
 
-    // ✅ Embed Arabic font so Vercel PDF won't be blank
     const html = `
       <!DOCTYPE html>
       <html lang="ar" dir="rtl">
@@ -58,25 +62,22 @@ export default async function handler(req, res) {
               align-items: center;
               justify-content: center;
               background: white;
-              direction: rtl;
-              font-family: "Amiri", Arial, sans-serif;
             }
 
             .text {
+              font-family: "Amiri", serif;
               font-size: 60px;
               font-weight: 400;
             }
           </style>
         </head>
         <body>
-          <div class="text">${arabicText}</div>
+          <div class="text">${finalArabicText}</div>
         </body>
       </html>
     `;
 
     await page.setContent(html, { waitUntil: "networkidle0" });
-
-    // ✅ Ensure the font loads before PDF is printed
     await page.evaluateHandle("document.fonts.ready");
 
     const pdfBuffer = await page.pdf({
@@ -84,7 +85,7 @@ export default async function handler(req, res) {
       printBackground: true,
     });
 
-    res.statusCode = 200;
+    res.status(200);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", 'attachment; filename="arabic.pdf"');
     res.setHeader("Content-Length", pdfBuffer.length);
@@ -92,7 +93,6 @@ export default async function handler(req, res) {
     return res.end(pdfBuffer);
   } catch (error) {
     console.error("PDF error:", error);
-
     return res.status(500).json({
       error: "Failed to generate PDF",
       message: error.message,
