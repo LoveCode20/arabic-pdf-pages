@@ -1,6 +1,7 @@
 // pages/api/pdf.js
 // Server-side PDF generation (Local + Vercel)
 // Uses puppeteer-core + @sparticuz/chromium for Vercel, and local Edge for localhost.
+// IMPORTANT: We embed Amiri font so Arabic renders correctly on Vercel too.
 
 import puppeteer from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
@@ -25,19 +26,31 @@ export default async function handler(req, res) {
 
       executablePath,
 
-      // ✅ IMPORTANT: Vercel requires chromium.headless
+      // Vercel needs chromium.headless, local can be true
       headless: isVercel ? chromium.headless : true,
     });
 
     const page = await browser.newPage();
 
-    // Arabic direction + center alignment
+    // ✅ Use absolute URL so it works on Vercel + Local
+    const host = req.headers.host;
+    const protocol = host?.includes("localhost") ? "http" : "https";
+    const fontUrl = `${protocol}://${host}/fonts/Amiri-Regular.ttf`;
+
+    // ✅ Embed Arabic font so Vercel PDF won't be blank
     const html = `
       <!DOCTYPE html>
       <html lang="ar" dir="rtl">
         <head>
           <meta charset="UTF-8" />
           <style>
+            @font-face {
+              font-family: "Amiri";
+              src: url("${fontUrl}") format("truetype");
+              font-weight: normal;
+              font-style: normal;
+            }
+
             body {
               margin: 0;
               height: 100vh;
@@ -46,11 +59,12 @@ export default async function handler(req, res) {
               justify-content: center;
               background: white;
               direction: rtl;
-              font-family: Arial, sans-serif;
+              font-family: "Amiri", Arial, sans-serif;
             }
+
             .text {
               font-size: 60px;
-              font-weight: 500;
+              font-weight: 400;
             }
           </style>
         </head>
@@ -62,12 +76,14 @@ export default async function handler(req, res) {
 
     await page.setContent(html, { waitUntil: "networkidle0" });
 
+    // ✅ Ensure the font loads before PDF is printed
+    await page.evaluateHandle("document.fonts.ready");
+
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
     });
 
-    // ✅ Always set headers BEFORE sending PDF
     res.statusCode = 200;
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", 'attachment; filename="arabic.pdf"');
