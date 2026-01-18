@@ -13,24 +13,18 @@ export default async function handler(req, res) {
 
     const isVercel = !!process.env.VERCEL;
 
-    // Use Vercel-compatible Chromium path on Vercel
-    // Use Edge path on localhost
     const executablePath = isVercel
       ? await chromium.executablePath()
-      : "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+      : "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"; // Local Edge path
 
     browser = await puppeteer.launch({
-      args: isVercel
-        ? chromium.args
-        : ["--no-sandbox", "--disable-setuid-sandbox"],
-
+      args: isVercel ? chromium.args : ["--no-sandbox", "--disable-setuid-sandbox"],
       executablePath,
       headless: true,
     });
 
     const page = await browser.newPage();
 
-    // Set the HTML (Arabic direction + center alignment)
     const html = `
       <!DOCTYPE html>
       <html lang="ar" dir="rtl">
@@ -66,15 +60,11 @@ export default async function handler(req, res) {
       printBackground: true,
     });
 
-    // IMPORTANT: set headers before sending PDF
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", 'attachment; filename="arabic.pdf"');
-    res.setHeader("Content-Length", pdfBuffer.length); // ✅ helps browsers load PDF correctly
-
     return res.status(200).send(pdfBuffer);
   } catch (error) {
     console.error("PDF error:", error);
-
     return res.status(500).json({
       error: "Failed to generate PDF",
       message: error.message,
