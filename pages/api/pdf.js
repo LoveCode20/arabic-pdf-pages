@@ -9,7 +9,10 @@ export default async function handler(req, res) {
 
   try {
     const arabicText = "مرحبا بالعالم";
-    const isVercel = process.env.VERCEL === "1";
+
+    // Vercel sets these env vars automatically
+    const isVercel =
+      process.env.VERCEL === "1" || process.env.VERCEL_ENV !== undefined;
 
     // ✅ Correct executable path for each environment
     const executablePath = isVercel
@@ -21,7 +24,7 @@ export default async function handler(req, res) {
         ? chromium.args
         : ["--no-sandbox", "--disable-setuid-sandbox"],
       executablePath,
-      headless: true,
+      headless: isVercel ? chromium.headless : true,
     });
 
     const page = await browser.newPage();
