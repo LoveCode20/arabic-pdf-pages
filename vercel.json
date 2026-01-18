@@ -1,10 +1,7 @@
 {
   "functions": {
     "pages/api/pdf.js": {
-      "maxDuration": 30,
-      "includeFiles": [
-        "node_modules/@sparticuz/chromium/**"
-      ]
+      "includeFiles": "node_modules/@sparticuz/chromium/**"
     }
   }
 }
