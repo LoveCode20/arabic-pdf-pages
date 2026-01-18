@@ -1,13 +1,11 @@
 // pages/index.js
-// Single public page.
-// Clicking the button calls /api/pdf which generates the PDF server-side.
+// Generates + downloads PDF from /api/pdf
 
 import { useState } from "react";
 
 export default function Home() {
   const [loading, setLoading] = useState(false);
 
-  // Calls the API route and triggers PDF download in the browser
   const generatePdf = async () => {
     try {
       setLoading(true);
@@ -15,15 +13,23 @@ export default function Home() {
       const res = await fetch("/api/pdf");
 
       if (!res.ok) {
-        alert("PDF generation failed.");
+        const errText = await res.text();
+        console.log("PDF API error response:", errText);
+        alert("PDF generation failed. Check console for details.");
         return;
       }
 
-      // Convert response to Blob (PDF file)
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("application/pdf")) {
+        const errText = await res.text();
+        console.log("Not a PDF response:", errText);
+        alert("Server did not return a PDF. Check console.");
+        return;
+      }
+
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
 
-      // Create a temporary download link
       const a = document.createElement("a");
       a.href = url;
       a.download = "arabic.pdf";
@@ -33,135 +39,273 @@ export default function Home() {
 
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      console.log(err);
-      alert("Something went wrong.");
+      console.log("Download error:", err);
+      alert("Something went wrong while generating the PDF.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={styles.page}>
-      <div style={styles.card}>
+    <main style={styles.page}>
+      {/* Background decorations */}
+      <div style={styles.bgGlowOne} />
+      <div style={styles.bgGlowTwo} />
+
+      <div style={styles.wrapper}>
+        {/* Top badge */}
         <div style={styles.badge}>Server-side PDF Generator</div>
 
-        <h1 style={styles.title}>Arabic PDF Proof of Concept</h1>
-        <p style={styles.subtitle}>
-          Click the button below to generate a PDF containing a hard-coded Arabic
-          sentence.
-        </p>
+        <div style={styles.card}>
+          <div style={styles.header}>
+            <h1 style={styles.title}>Arabic PDF Generator</h1>
+            <p style={styles.subtitle}>
+              Generate and download a PDF instantly containing a hard-coded
+              Arabic sentence rendered correctly in RTL format.
+            </p>
+          </div>
 
-        <div style={styles.preview}>
-          <span style={styles.previewLabel}>Preview text:</span>
-          <div style={styles.arabicText} dir="rtl">
-            مرحبا بالعالم
+          <div style={styles.previewBox}>
+            <p style={styles.previewLabel}>Preview text</p>
+            <div style={styles.previewText} dir="rtl">
+              مرحبا بالعالم
+            </div>
+          </div>
+
+          <button
+            onClick={generatePdf}
+            disabled={loading}
+            style={{
+              ...styles.button,
+              ...(loading ? styles.buttonDisabled : {}),
+            }}
+          >
+            {loading ? (
+              <span style={styles.buttonRow}>
+                <span style={styles.spinner} />
+                Generating PDF...
+              </span>
+            ) : (
+              "Generate PDF"
+            )}
+          </button>
+
+          <div style={styles.footerRow}>
+            <div style={styles.meta}>
+              API Route: <span style={styles.mono}>/api/pdf</span>
+            </div>
+
+            <div style={styles.tip}>
+              Tip: Works locally & on Vercel deployment.
+            </div>
           </div>
         </div>
 
-        <button
-          onClick={generatePdf}
-          disabled={loading}
-          style={{
-            ...styles.button,
-            ...(loading ? styles.buttonDisabled : {}),
-          }}
-        >
-          {loading ? "Generating..." : "Generate PDF"}
-        </button>
-
-        <p style={styles.footerText}>
-          PDF is generated on the server via <b>/api/pdf</b>
+        <p style={styles.bottomNote}>
+          Built with Next.js Pages Router • PDF generated on demand
         </p>
       </div>
-    </div>
+    </main>
   );
 }
 
-// Minimal inline styling (keeps the project lightweight)
 const styles = {
   page: {
     minHeight: "100vh",
+    background: "#0b1020",
     display: "flex",
     justifyContent: "center",
     alignItems: "center",
-    padding: "24px",
-    background:
-      "radial-gradient(circle at top, rgba(99,102,241,0.25), transparent 55%), linear-gradient(135deg, #0b1220, #05070d)",
-    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial",
+    padding: "28px",
+    fontFamily:
+      "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
+    position: "relative",
+    overflow: "hidden",
   },
+
+  bgGlowOne: {
+    position: "absolute",
+    width: "550px",
+    height: "550px",
+    borderRadius: "50%",
+    background:
+      "radial-gradient(circle at center, rgba(90, 140, 255, 0.45), rgba(90, 140, 255, 0) 60%)",
+    top: "-180px",
+    left: "-180px",
+    filter: "blur(12px)",
+  },
+
+  bgGlowTwo: {
+    position: "absolute",
+    width: "600px",
+    height: "600px",
+    borderRadius: "50%",
+    background:
+      "radial-gradient(circle at center, rgba(0, 255, 179, 0.35), rgba(0, 255, 179, 0) 60%)",
+    bottom: "-220px",
+    right: "-220px",
+    filter: "blur(12px)",
+  },
+
+  wrapper: {
+    width: "100%",
+    maxWidth: "720px",
+    position: "relative",
+    zIndex: 2,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "14px",
+  },
+
+  badge: {
+    padding: "8px 14px",
+    borderRadius: "999px",
+    background: "rgba(255,255,255,0.08)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    color: "rgba(255,255,255,0.85)",
+    fontSize: "12px",
+    letterSpacing: "0.5px",
+    textTransform: "uppercase",
+  },
+
   card: {
     width: "100%",
-    maxWidth: "620px",
-    padding: "28px",
-    borderRadius: "18px",
-    background: "rgba(255, 255, 255, 0.06)",
-    border: "1px solid rgba(255, 255, 255, 0.12)",
-    boxShadow: "0 20px 60px rgba(0,0,0,0.55)",
-    backdropFilter: "blur(10px)",
-    color: "#fff",
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    borderRadius: "22px",
+    padding: "26px",
+    boxShadow: "0 18px 45px rgba(0,0,0,0.45)",
+    backdropFilter: "blur(12px)",
   },
-  badge: {
-    display: "inline-block",
-    padding: "6px 12px",
-    borderRadius: "999px",
-    fontSize: "12px",
-    letterSpacing: "0.3px",
-    background: "rgba(99, 102, 241, 0.22)",
-    border: "1px solid rgba(99, 102, 241, 0.35)",
-    marginBottom: "14px",
+
+  header: {
+    marginBottom: "18px",
   },
+
   title: {
-    margin: "0 0 10px",
+    margin: 0,
     fontSize: "34px",
     fontWeight: 800,
-    lineHeight: 1.2,
+    color: "#ffffff",
+    letterSpacing: "-0.4px",
   },
+
   subtitle: {
-    margin: "0 0 18px",
-    color: "rgba(255,255,255,0.78)",
-    fontSize: "15px",
-    lineHeight: 1.6,
-  },
-  preview: {
     marginTop: "10px",
-    marginBottom: "18px",
-    padding: "16px",
-    borderRadius: "14px",
-    background: "rgba(0,0,0,0.35)",
-    border: "1px solid rgba(255,255,255,0.12)",
-  },
-  previewLabel: {
-    fontSize: "12px",
-    color: "rgba(255,255,255,0.65)",
-    display: "block",
-    marginBottom: "10px",
-  },
-  arabicText: {
-    fontSize: "32px",
-    textAlign: "center",
-    direction: "rtl",
-    letterSpacing: "0.2px",
-  },
-  button: {
-    width: "100%",
-    padding: "14px 16px",
-    borderRadius: "12px",
-    border: "none",
+    marginBottom: 0,
     fontSize: "15px",
-    fontWeight: 700,
-    cursor: "pointer",
-    background: "linear-gradient(135deg, #6366f1, #22c55e)",
-    color: "#fff",
-    transition: "0.2s",
+    lineHeight: "1.6",
+    color: "rgba(255,255,255,0.75)",
+    maxWidth: "620px",
   },
-  buttonDisabled: {
-    opacity: 0.6,
-    cursor: "not-allowed",
+
+  previewBox: {
+    marginTop: "18px",
+    marginBottom: "18px",
+    padding: "16px 18px",
+    borderRadius: "16px",
+    background: "rgba(0,0,0,0.25)",
+    border: "1px solid rgba(255,255,255,0.10)",
   },
-  footerText: {
-    marginTop: "14px",
+
+  previewLabel: {
+    margin: 0,
     fontSize: "12px",
     color: "rgba(255,255,255,0.6)",
+    marginBottom: "8px",
+  },
+
+  previewText: {
+    fontSize: "28px",
+    fontWeight: 600,
+    color: "#ffffff",
+    textAlign: "center",
+    padding: "8px 0",
+    letterSpacing: "0.2px",
+  },
+
+  button: {
+    width: "100%",
+    padding: "14px 18px",
+    borderRadius: "16px",
+    border: "none",
+    background: "linear-gradient(90deg, #4f8cff, #00ffb3)",
+    color: "#0b1020",
+    fontSize: "15px",
+    fontWeight: 800,
+    cursor: "pointer",
+    transition: "transform 0.08s ease",
+  },
+
+  buttonDisabled: {
+    opacity: 0.7,
+    cursor: "not-allowed",
+  },
+
+  buttonRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "10px",
+  },
+
+  spinner: {
+    width: "16px",
+    height: "16px",
+    borderRadius: "50%",
+    border: "2px solid rgba(11,16,32,0.25)",
+    borderTop: "2px solid rgba(11,16,32,0.95)",
+    animation: "spin 0.8s linear infinite",
+  },
+
+  footerRow: {
+    marginTop: "16px",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "10px",
+    flexWrap: "wrap",
+  },
+
+  meta: {
+    fontSize: "12px",
+    color: "rgba(255,255,255,0.7)",
+  },
+
+  tip: {
+    fontSize: "12px",
+    color: "rgba(255,255,255,0.55)",
+  },
+
+  mono: {
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+    background: "rgba(255,255,255,0.10)",
+    padding: "2px 8px",
+    borderRadius: "8px",
+    border: "1px solid rgba(255,255,255,0.12)",
+    color: "rgba(255,255,255,0.85)",
+  },
+
+  bottomNote: {
+    marginTop: "6px",
+    fontSize: "12px",
+    color: "rgba(255,255,255,0.45)",
     textAlign: "center",
   },
 };
+
+/**
+ * Small CSS animation injection (so spinner works without extra files)
+ * This is safe and minimal.
+ */
+if (typeof document !== "undefined") {
+  const style = document.createElement("style");
+  style.innerHTML = `
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+  `;
+  document.head.appendChild(style);
+}

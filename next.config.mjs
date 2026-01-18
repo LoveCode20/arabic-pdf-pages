@@ -1,7 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  /* config options here */
-  reactStrictMode: true,
+  outputFileTracingIncludes: {
+    "/api/pdf": ["./node_modules/@sparticuz/chromium/**"],
+  },
 };
 
 export default nextConfig;
