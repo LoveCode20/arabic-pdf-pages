@@ -8,71 +8,106 @@ export default async function handler(req, res) {
   let browser;
 
   try {
+    // ❌ Normal Arabic (Chromium may break it)
+    const arabicText = "مرحبا بالعالم";
+
+    // ✅ Forced-joined Arabic (Presentation Forms) — will always look correct
+    const shapedArabic = "ﻣﺮﺣﺒﺎ ﺑﺎﻟﻌﺎﻟﻢ";
+
     const isVercel = !!process.env.VERCEL;
 
     // Local Edge path (Windows)
     const edgePath =
       "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
-    // ✅ IMPORTANT: Always read from /public
-    const imgPath = path.join(process.cwd(), "public", "arabic.png");
+    // ✅ Read Amiri font from public/fonts
+    const fontPath = path.join(
+      process.cwd(),
+      "public",
+      "fonts",
+      "Amiri-Regular.ttf"
+    );
 
-    if (!fs.existsSync(imgPath)) {
+    if (!fs.existsSync(fontPath)) {
       throw new Error(
-        `arabic.png not found. Put it inside: public/arabic.png (current: ${imgPath})`
+        `Font not found. Put it here: public/fonts/Amiri-Regular.ttf`
       );
     }
 
-    const imgBase64 = fs.readFileSync(imgPath).toString("base64");
+    const fontBase64 = fs.readFileSync(fontPath).toString("base64");
 
-    const launchOptions = isVercel
-      ? {
-          args: chromium.args,
-          defaultViewport: chromium.defaultViewport,
-          executablePath: await chromium.executablePath(),
-          headless: chromium.headless,
-        }
-      : {
-          headless: "new",
-          executablePath: edgePath,
-          args: ["--no-sandbox", "--disable-setuid-sandbox"],
-        };
-
-    browser = await puppeteer.launch(launchOptions);
+    browser = await puppeteer.launch(
+      isVercel
+        ? {
+            args: chromium.args,
+            defaultViewport: chromium.defaultViewport,
+            executablePath: await chromium.executablePath(),
+            headless: chromium.headless,
+          }
+        : {
+            headless: "new",
+            executablePath: edgePath,
+            args: ["--no-sandbox", "--disable-setuid-sandbox"],
+          }
+    );
 
     const page = await browser.newPage();
-
-    // Make it stable in serverless
     await page.setViewport({ width: 1200, height: 800 });
 
     const html = `
       <!doctype html>
-      <html>
+      <html lang="ar" dir="rtl">
         <head>
           <meta charset="utf-8" />
           <style>
+            @font-face {
+              font-family: "Amiri";
+              src: url("data:font/ttf;base64,${fontBase64}") format("truetype");
+              font-weight: normal;
+              font-style: normal;
+            }
+
             html, body {
               margin: 0;
               padding: 0;
               width: 100%;
               height: 100%;
               background: #fff;
+            }
+
+            body {
               display: flex;
               align-items: center;
               justify-content: center;
+              direction: rtl;
+              text-align: center;
+              font-family: "Amiri", serif;
             }
-            img {
-              width: 720px;
-              height: auto;
+
+            .text {
+              font-size: 70px;
+              font-weight: 400;
+              color: #000;
+              line-height: 1.2;
+
+              direction: rtl;
+              unicode-bidi: isolate;
+              letter-spacing: 0;
+              white-space: nowrap;
+              font-kerning: normal;
+              font-feature-settings: "kern" 1, "liga" 1;
             }
           </style>
         </head>
+
         <body>
-          <img id="arabicImg" src="data:image/png;base64,${imgBase64}" />
+          <!-- ✅ Use shapedArabic so it displays correctly -->
+          <div class="text" id="arabicText">${shapedArabic}</div>
+
           <script>
-            const img = document.getElementById("arabicImg");
-            img.onload = () => { window.__READY__ = true; };
-            img.onerror = () => { window.__READY__ = "error"; };
+            document.fonts.ready.then(() => {
+              window.__READY__ = true;
+            });
           </script>
         </body>
       </html>
@@ -80,12 +115,11 @@ export default async function handler(req, res) {
 
     await page.setContent(html, { waitUntil: "domcontentloaded" });
 
-    // ✅ Wait until image is FULLY loaded
     await page.waitForFunction(() => window.__READY__ === true, {
       timeout: 15000,
     });
 
-    // extra delay helps Vercel Chromium
+    await page.waitForSelector("#arabicText");
     await new Promise((r) => setTimeout(r, 300));
 
     const pdfBuffer = await page.pdf({
