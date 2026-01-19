@@ -2,8 +2,6 @@
 import puppeteer from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
 import sharp from "sharp";
-import fs from "fs";
-import path from "path";
 
 export default async function handler(req, res) {
   let browser;
@@ -15,15 +13,23 @@ export default async function handler(req, res) {
     const edgePath =
       "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
-    // ✅ Read font locally (works on localhost + Vercel if committed)
-    const fontPath = path.resolve("./public/fonts/Amiri-Regular.ttf");
-    if (!fs.existsSync(fontPath)) {
-      throw new Error(`Font not found at: ${fontPath}`);
+    // ✅ Always load font via HTTP (works on Vercel + Localhost)
+    const baseUrl = isVercel
+      ? `https://${req.headers.host}`
+      : "http://localhost:3000";
+
+    const fontUrl = `${baseUrl}/fonts/Amiri-Regular.ttf`;
+
+    // ✅ Fetch font and convert to base64
+    const fontRes = await fetch(fontUrl);
+    if (!fontRes.ok) {
+      throw new Error(`Failed to fetch font from ${fontUrl}`);
     }
 
-    const fontBase64 = fs.readFileSync(fontPath).toString("base64");
+    const fontArrayBuffer = await fontRes.arrayBuffer();
+    const fontBase64 = Buffer.from(fontArrayBuffer).toString("base64");
 
-    // ✅ SVG -> PNG (Arabic will always look correct)
+    // ✅ SVG using embedded font
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="500">
         <style>
@@ -39,10 +45,12 @@ export default async function handler(req, res) {
             unicode-bidi: bidi-override;
           }
         </style>
+
         <text x="700" y="280" text-anchor="middle">${arabicText}</text>
       </svg>
     `;
 
+    // ✅ Convert SVG -> PNG (perfect Arabic look)
     const pngBuffer = await sharp(Buffer.from(svg)).png().toBuffer();
     const pngBase64 = pngBuffer.toString("base64");
 
@@ -62,9 +70,6 @@ export default async function handler(req, res) {
     );
 
     const page = await browser.newPage();
-
-    // ✅ Make page stable for serverless
-    await page.setViewport({ width: 1200, height: 800 });
 
     const html = `
       <!doctype html>
@@ -91,7 +96,6 @@ export default async function handler(req, res) {
         <body>
           <img id="arabicImg" src="data:image/png;base64,${pngBase64}" />
           <script>
-            // mark ready when image fully loads
             const img = document.getElementById("arabicImg");
             img.onload = () => { window.__IMG_READY__ = true; };
           </script>
@@ -100,14 +104,9 @@ export default async function handler(req, res) {
     `;
 
     await page.setContent(html, { waitUntil: "domcontentloaded" });
-
-    // ✅ THIS IS THE MAIN FIX: wait until image is loaded
     await page.waitForFunction(() => window.__IMG_READY__ === true, {
       timeout: 10000,
     });
-
-    // extra tiny delay for Vercel Chromium
-    await new Promise((r) => setTimeout(r, 200));
 
     const pdfBuffer = await page.pdf({
       format: "A4",
@@ -116,7 +115,6 @@ export default async function handler(req, res) {
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", 'attachment; filename="arabic.pdf"');
-
     res.status(200).end(pdfBuffer);
     return;
   } catch (err) {
