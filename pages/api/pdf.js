@@ -30,24 +30,12 @@ export default async function handler(req, res) {
 
     const page = await browser.newPage();
 
-    // ✅ Use Vercel-hosted font URL (this fixes blank/missing font on Vercel)
-    const fontUrl = isVercel
-      ? "https://arabic-pdf-pages.vercel.app/fonts/Amiri-Regular.ttf"
-      : "http://localhost:3000/fonts/Amiri-Regular.ttf";
-
     const html = `
       <!doctype html>
       <html lang="ar" dir="rtl">
         <head>
           <meta charset="utf-8" />
           <style>
-            @font-face {
-              font-family: "Amiri";
-              src: url("${fontUrl}") format("truetype");
-              font-weight: normal;
-              font-style: normal;
-            }
-
             html, body {
               margin: 0;
               padding: 0;
@@ -62,7 +50,12 @@ export default async function handler(req, res) {
               justify-content: center;
               direction: rtl;
               text-align: center;
-              font-family: "Amiri", serif;
+
+              /* ✅ IMPORTANT:
+                 Don't force Amiri.
+                 Use system fonts that shape Arabic properly like localhost Edge.
+              */
+              font-family: "Segoe UI", "Tahoma", "Arial", sans-serif;
             }
 
             .text {
@@ -76,42 +69,27 @@ export default async function handler(req, res) {
 
         <body>
           <div class="text" id="arabicText">${arabicText}</div>
+
+          <script>
+            // Ensure layout is ready before PDF
+            window.__READY__ = false;
+            window.onload = () => { window.__READY__ = true; };
+          </script>
         </body>
       </html>
     `;
 
     await page.setContent(html, { waitUntil: "domcontentloaded" });
 
-    // ✅ Wait for fonts to load properly (important on Vercel)
-    await page.evaluate(async () => {
-      await document.fonts.ready;
+    // Wait for the page to be ready
+    await page.waitForFunction(() => window.__READY__ === true, {
+      timeout: 5000,
     });
 
-    // ✅ Make sure fonts are fully loaded
-    await page.waitForFunction(() => document.fonts.status === "loaded", {
-      timeout: 10000,
-    });
+    await page.waitForSelector("#arabicText");
 
-    // Ensure text exists
-    await page.waitForSelector("#arabicText", { timeout: 10000 });
-
-    // ✅ FORCE FONT TO APPLY (THIS IS THE REAL FIX)
-    // This makes Chromium actually use the font before printing
-    await page.evaluate(() => {
-      const el = document.getElementById("arabicText");
-      if (!el) return;
-
-      // Force layout calculation
-      const rect = el.getBoundingClientRect();
-
-      // Force font usage by measuring width
-      const width = rect.width;
-
-      return width;
-    });
-
-    // Tiny delay (safer than page.waitForTimeout)
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    // small delay to stabilize rendering
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
     const pdfBuffer = await page.pdf({
       format: "A4",
