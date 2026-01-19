@@ -2,6 +2,8 @@
 import puppeteer from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
 import sharp from "sharp";
+import fs from "fs";
+import path from "path";
 
 export default async function handler(req, res) {
   let browser;
@@ -13,24 +15,18 @@ export default async function handler(req, res) {
     const edgePath =
       "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
-    // ✅ Always load font via HTTP (works on Vercel + Localhost)
-    const baseUrl = isVercel
-      ? `https://${req.headers.host}`
-      : "http://localhost:3000";
+    // ✅ Read font locally (works on localhost + Vercel if committed)
+    const fontPath = path.resolve("./public/fonts/Amiri-Regular.ttf");
 
-    const fontUrl = `${baseUrl}/fonts/Amiri-Regular.ttf`;
-
-    // ✅ Fetch font and convert to base64
-    const fontRes = await fetch(fontUrl);
-    if (!fontRes.ok) {
-      throw new Error(`Failed to fetch font from ${fontUrl}`);
+    if (!fs.existsSync(fontPath)) {
+      throw new Error(`Font not found at: ${fontPath}`);
     }
 
-    const fontArrayBuffer = await fontRes.arrayBuffer();
-    const fontBase64 = Buffer.from(fontArrayBuffer).toString("base64");
+    const fontBase64 = fs.readFileSync(fontPath).toString("base64");
 
-    // ✅ SVG using embedded font
-    const svg = `
+    // ✅ SVG -> PNG (Arabic should look correct)
+    // IMPORTANT: add xml header + use unicode-bidi: plaintext (more stable)
+    const svg = `<?xml version="1.0" encoding="UTF-8"?>
       <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="500">
         <style>
           @font-face {
@@ -42,16 +38,21 @@ export default async function handler(req, res) {
             font-size: 120px;
             fill: #000;
             direction: rtl;
-            unicode-bidi: bidi-override;
+            unicode-bidi: plaintext;
           }
         </style>
 
+        <rect width="100%" height="100%" fill="#ffffff" />
         <text x="700" y="280" text-anchor="middle">${arabicText}</text>
       </svg>
     `;
 
-    // ✅ Convert SVG -> PNG (perfect Arabic look)
-    const pngBuffer = await sharp(Buffer.from(svg)).png().toBuffer();
+    // ✅ MAIN FIX: Sharp needs density for clean SVG rendering (especially on Vercel)
+    // Without density, SVG fonts can fail or render as boxes.
+    const pngBuffer = await sharp(Buffer.from(svg), { density: 300 })
+      .png()
+      .toBuffer();
+
     const pngBase64 = pngBuffer.toString("base64");
 
     browser = await puppeteer.launch(
@@ -70,6 +71,9 @@ export default async function handler(req, res) {
     );
 
     const page = await browser.newPage();
+
+    // ✅ Make page stable for serverless
+    await page.setViewport({ width: 1200, height: 800 });
 
     const html = `
       <!doctype html>
@@ -98,23 +102,38 @@ export default async function handler(req, res) {
           <script>
             const img = document.getElementById("arabicImg");
             img.onload = () => { window.__IMG_READY__ = true; };
+            img.onerror = () => { window.__IMG_ERROR__ = true; };
           </script>
         </body>
       </html>
     `;
 
     await page.setContent(html, { waitUntil: "domcontentloaded" });
-    await page.waitForFunction(() => window.__IMG_READY__ === true, {
-      timeout: 10000,
-    });
+
+    // ✅ Wait until image is loaded (avoid blank pdf)
+    await page.waitForFunction(
+      () => window.__IMG_READY__ === true || window.__IMG_ERROR__ === true,
+      { timeout: 10000 }
+    );
+
+    // If image failed to load, throw error
+    const imgError = await page.evaluate(() => window.__IMG_ERROR__ === true);
+    if (imgError) {
+      throw new Error("PNG image failed to load inside Puppeteer page");
+    }
+
+    // extra tiny delay for Vercel Chromium stability
+    await new Promise((r) => setTimeout(r, 200));
 
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
+      preferCSSPageSize: true,
     });
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", 'attachment; filename="arabic.pdf"');
+
     res.status(200).end(pdfBuffer);
     return;
   } catch (err) {
