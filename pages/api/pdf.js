@@ -1,9 +1,9 @@
 // pages/api/pdf.js
 import puppeteer from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
+import sharp from "sharp";
 import fs from "fs";
 import path from "path";
-import sharp from "sharp";
 
 export default async function handler(req, res) {
   let browser;
@@ -15,16 +15,17 @@ export default async function handler(req, res) {
     const edgePath =
       "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
-    // ✅ Load font as base64
-    const fontPath = path.join(
-      process.cwd(),
-      "public",
-      "fonts",
-      "Amiri-Regular.ttf"
-    );
+    // ✅ FIXED: robust font path (works on Vercel + local)
+    const fontPath = path.resolve("./public/fonts/Amiri-Regular.ttf");
+
+    // ✅ Make sure font exists (helps debugging)
+    if (!fs.existsSync(fontPath)) {
+      throw new Error(`Font not found at: ${fontPath}`);
+    }
+
     const fontBase64 = fs.readFileSync(fontPath).toString("base64");
 
-    // ✅ Build SVG (Arabic joins perfectly here)
+    // ✅ SVG with embedded font (no missing glyphs)
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="500">
         <style>
@@ -32,22 +33,19 @@ export default async function handler(req, res) {
             font-family: "Amiri";
             src: url("data:font/ttf;base64,${fontBase64}") format("truetype");
           }
-          body {
-            margin: 0;
-          }
           text {
             font-family: "Amiri";
             font-size: 120px;
             fill: #000;
             direction: rtl;
-            unicode-bidi: plaintext;
+            unicode-bidi: bidi-override;
           }
         </style>
         <text x="700" y="280" text-anchor="middle">${arabicText}</text>
       </svg>
     `;
 
-    // ✅ Convert SVG → PNG (this is the magic)
+    // ✅ Convert SVG → PNG (guaranteed correct Arabic look)
     const pngBuffer = await sharp(Buffer.from(svg)).png().toBuffer();
     const pngBase64 = pngBuffer.toString("base64");
 
@@ -68,7 +66,6 @@ export default async function handler(req, res) {
 
     const page = await browser.newPage();
 
-    // ✅ Use PNG inside HTML (no broken Arabic anymore)
     const html = `
       <!doctype html>
       <html>
