@@ -1,6 +1,7 @@
 // pages/api/pdf.js
-// Server-side PDF generation (Local + Vercel)
-// Ensures Arabic text is visible before generating PDF (fixes blank PDF on Vercel)
+// Generates a PDF on the SERVER and returns it as a download.
+// Hard-coded Arabic sentence: "مرحبا بالعالم"
+// Works on Local (Edge) + Vercel (sparticuz/chromium)
 
 import puppeteer from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
@@ -10,14 +11,15 @@ export default async function handler(req, res) {
 
   try {
     const arabicText = "مرحبا بالعالم";
-    const isVercel = !!process.env.VERCEL;
+    const isServerless = !!process.env.VERCEL;
 
-    // Local Edge path
+    // Local Windows Edge path
     const edgePath =
       "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
+    // Launch browser (Vercel uses sparticuz chromium, local uses Edge)
     browser = await puppeteer.launch(
-      isVercel
+      isServerless
         ? {
             args: chromium.args,
             defaultViewport: chromium.defaultViewport,
@@ -33,12 +35,8 @@ export default async function handler(req, res) {
 
     const page = await browser.newPage();
 
-    // Build full URL (works on both local + Vercel)
-    const host = req.headers.host;
-    const protocol = host.includes("localhost") ? "http" : "https";
-    const baseUrl = `${protocol}://${host}`;
-    const fontUrl = `${baseUrl}/fonts/Amiri-Regular.ttf`;
-
+    // ✅ IMPORTANT: Use your font from /public/fonts/Amiri-Regular.ttf
+    // This guarantees Arabic renders the same on Local + Vercel
     const html = `
       <!doctype html>
       <html lang="ar" dir="rtl">
@@ -47,7 +45,7 @@ export default async function handler(req, res) {
           <style>
             @font-face {
               font-family: "Amiri";
-              src: url("${fontUrl}") format("truetype");
+              src: url("/fonts/Amiri-Regular.ttf") format("truetype");
               font-weight: normal;
               font-style: normal;
             }
@@ -77,40 +75,30 @@ export default async function handler(req, res) {
             }
           </style>
         </head>
-
         <body>
-          <div class="text" id="arabicText">${arabicText}</div>
+          <div class="text">${arabicText}</div>
         </body>
       </html>
     `;
 
     await page.setContent(html, { waitUntil: "networkidle0" });
 
-    // ✅ Wait for fonts to load fully
-    await page.evaluate(async () => {
-      await document.fonts.ready;
-    });
-
-    // ✅ Ensure the Arabic text element exists + has visible text
-    await page.waitForSelector("#arabicText");
-
-    // Extra safe delay (works everywhere)
-    await new Promise((resolve) => setTimeout(resolve, 300));
-
+    // Generate PDF
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
       preferCSSPageSize: true,
     });
 
+    // Return PDF
     res.status(200);
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", 'attachment; filename="arabic.pdf"');
-    return res.end(pdfBuffer);
+    res.setHeader("Content-Disposition", "attachment; filename=arabic.pdf");
+    res.end(pdfBuffer);
   } catch (err) {
     console.log("PDF error:", err);
 
-    return res.status(500).json({
+    res.status(500).json({
       error: "Failed to generate PDF",
       message: err?.message || String(err),
     });
