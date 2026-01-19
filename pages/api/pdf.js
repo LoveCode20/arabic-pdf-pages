@@ -8,13 +8,14 @@ export default async function handler(req, res) {
   let browser;
 
   try {
-    // ❌ Normal Arabic (Chromium may break it)
-    const arabicText = "مرحبا بالعالم";
-
-    // ✅ Forced-joined Arabic (Presentation Forms) — will always look correct
-    const shapedArabic = "ﻣﺮﺣﺒﺎ ﺑﺎﻟﻌﺎﻟﻢ";
-
     const isVercel = !!process.env.VERCEL;
+
+    // ✅ Machine-readable Arabic (REAL unicode text)
+    const unicodeArabic = "مرحبا بالعالم";
+
+    // ✅ Perfect-looking Arabic (Presentation Forms)
+    // This forces joined letters exactly as expected
+    const shapedArabic = "ﻣﺮﺣﺒﺎ ﺑﺎﻟﻌﺎﻟﻢ";
 
     // Local Edge path (Windows)
     const edgePath =
@@ -79,30 +80,63 @@ export default async function handler(req, res) {
               display: flex;
               align-items: center;
               justify-content: center;
+              font-family: "Amiri", serif;
               direction: rtl;
               text-align: center;
-              font-family: "Amiri", serif;
             }
 
-            .text {
+            /* Wrapper */
+            .wrap {
+              position: relative;
+              display: inline-block;
+            }
+
+            /* ✅ Visible text: forced perfect shaping */
+            .visibleArabic {
               font-size: 70px;
               font-weight: 400;
               color: #000;
               line-height: 1.2;
-
+              white-space: nowrap;
               direction: rtl;
               unicode-bidi: isolate;
-              letter-spacing: 0;
-              white-space: nowrap;
+              letter-spacing: 0 !important;
+              word-spacing: 0 !important;
               font-kerning: normal;
-              font-feature-settings: "kern" 1, "liga" 1;
+              text-rendering: geometricPrecision;
+            }
+
+            /* ✅ Invisible machine-readable layer (real unicode) */
+            .hiddenUnicode {
+              position: absolute;
+              inset: 0;
+              font-size: 70px;
+              font-weight: 400;
+              line-height: 1.2;
+              white-space: nowrap;
+              direction: rtl;
+
+              /* invisible but selectable/searchable */
+              color: transparent;
+              -webkit-text-fill-color: transparent;
+
+              /* keep it in text layer */
+              opacity: 0.01;
+
+              pointer-events: none;
+              user-select: text;
             }
           </style>
         </head>
 
         <body>
-          <!-- ✅ Use shapedArabic so it displays correctly -->
-          <div class="text" id="arabicText">${shapedArabic}</div>
+          <div class="wrap">
+            <!-- ✅ Perfect-looking Arabic -->
+            <div class="visibleArabic" id="arabicText">${shapedArabic}</div>
+
+            <!-- ✅ Machine-readable Unicode Arabic (invisible overlay) -->
+            <div class="hiddenUnicode">${unicodeArabic}</div>
+          </div>
 
           <script>
             document.fonts.ready.then(() => {
@@ -130,7 +164,6 @@ export default async function handler(req, res) {
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", 'attachment; filename="arabic.pdf"');
-
     res.status(200).end(pdfBuffer);
     return;
   } catch (err) {
