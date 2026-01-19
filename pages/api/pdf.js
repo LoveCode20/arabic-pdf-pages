@@ -1,8 +1,4 @@
 // pages/api/pdf.js
-// Generates a PDF on the SERVER and returns it as a download.
-// Hard-coded Arabic sentence: "مرحبا بالعالم"
-// Works on Local (Edge) + Vercel (sparticuz/chromium)
-
 import puppeteer from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
 
@@ -11,15 +7,14 @@ export default async function handler(req, res) {
 
   try {
     const arabicText = "مرحبا بالعالم";
-    const isServerless = !!process.env.VERCEL;
+    const isVercel = !!process.env.VERCEL;
 
-    // Local Windows Edge path
+    // Local Edge path
     const edgePath =
       "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
-    // Launch browser (Vercel uses sparticuz chromium, local uses Edge)
     browser = await puppeteer.launch(
-      isServerless
+      isVercel
         ? {
             args: chromium.args,
             defaultViewport: chromium.defaultViewport,
@@ -35,8 +30,11 @@ export default async function handler(req, res) {
 
     const page = await browser.newPage();
 
-    // ✅ IMPORTANT: Use your font from /public/fonts/Amiri-Regular.ttf
-    // This guarantees Arabic renders the same on Local + Vercel
+    // ✅ Use Vercel-hosted font URL (this fixes blank/missing font on Vercel)
+    const fontUrl = isVercel
+      ? "https://arabic-pdf-pages.vercel.app/fonts/Amiri-Regular.ttf"
+      : "http://localhost:3000/fonts/Amiri-Regular.ttf";
+
     const html = `
       <!doctype html>
       <html lang="ar" dir="rtl">
@@ -45,7 +43,7 @@ export default async function handler(req, res) {
           <style>
             @font-face {
               font-family: "Amiri";
-              src: url("/fonts/Amiri-Regular.ttf") format("truetype");
+              src: url("${fontUrl}") format("truetype");
               font-weight: normal;
               font-style: normal;
             }
@@ -75,26 +73,42 @@ export default async function handler(req, res) {
             }
           </style>
         </head>
+
         <body>
-          <div class="text">${arabicText}</div>
+          <div class="text" id="arabicText">${arabicText}</div>
         </body>
       </html>
     `;
 
-    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.setContent(html, { waitUntil: "domcontentloaded" });
 
-    // Generate PDF
+    // ✅ Wait for font to load properly (important on Vercel)
+    await page.evaluate(async () => {
+      await document.fonts.ready;
+    });
+
+    // ✅ Make sure fonts are fully loaded
+    await page.waitForFunction(() => document.fonts.status === "loaded", {
+      timeout: 5000,
+    });
+
+    // Ensure text exists
+    await page.waitForSelector("#arabicText");
+
+    // Tiny delay (safer than page.waitForTimeout)
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
       preferCSSPageSize: true,
     });
 
-    // Return PDF
-    res.status(200);
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", "attachment; filename=arabic.pdf");
-    res.end(pdfBuffer);
+    res.setHeader("Content-Disposition", 'attachment; filename="arabic.pdf"');
+
+    // ✅ IMPORTANT: don't return object/value
+    res.status(200).end(pdfBuffer);
   } catch (err) {
     console.log("PDF error:", err);
 
