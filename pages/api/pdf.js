@@ -1,8 +1,6 @@
 // pages/api/pdf.js
 import puppeteer from "puppeteer-core";
 import chromium from "@sparticuz/chromium";
-import fs from "fs";
-import path from "path";
 
 export default async function handler(req, res) {
   let browser;
@@ -11,6 +9,7 @@ export default async function handler(req, res) {
     const arabicText = "مرحبا بالعالم";
     const isVercel = !!process.env.VERCEL;
 
+    // Local Edge path
     const edgePath =
       "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
@@ -31,15 +30,10 @@ export default async function handler(req, res) {
 
     const page = await browser.newPage();
 
-    // ✅ read font from public/fonts
-    const fontPath = path.join(
-      process.cwd(),
-      "public",
-      "fonts",
-      "Amiri-Regular.ttf"
-    );
-
-    const fontBase64 = fs.readFileSync(fontPath).toString("base64");
+    // ✅ Use Vercel-hosted font URL (this fixes blank/missing font on Vercel)
+    const fontUrl = isVercel
+      ? "https://arabic-pdf-pages.vercel.app/fonts/Amiri-Regular.ttf"
+      : "http://localhost:3000/fonts/Amiri-Regular.ttf";
 
     const html = `
       <!doctype html>
@@ -49,7 +43,7 @@ export default async function handler(req, res) {
           <style>
             @font-face {
               font-family: "Amiri";
-              src: url("data:font/ttf;base64,${fontBase64}") format("truetype");
+              src: url("${fontUrl}") format("truetype");
               font-weight: normal;
               font-style: normal;
             }
@@ -88,26 +82,43 @@ export default async function handler(req, res) {
 
     await page.setContent(html, { waitUntil: "domcontentloaded" });
 
+    // ✅ Wait for font to load properly (important on Vercel)
     await page.evaluate(async () => {
       await document.fonts.ready;
     });
 
+    // ✅ Make sure fonts are fully loaded
+    await page.waitForFunction(() => document.fonts.status === "loaded", {
+      timeout: 5000,
+    });
+
+    // Ensure text exists
+    await page.waitForSelector("#arabicText");
+
+    // Tiny delay (safer than page.waitForTimeout)
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
+      preferCSSPageSize: true,
     });
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", 'attachment; filename="arabic.pdf"');
 
-    return res.status(200).end(pdfBuffer);
+    // ✅ IMPORTANT: don't return object/value
+    res.status(200).end(pdfBuffer);
   } catch (err) {
     console.log("PDF error:", err);
-    return res.status(500).json({
+
+    res.status(500).json({
       error: "Failed to generate PDF",
       message: err?.message || String(err),
     });
   } finally {
-    if (browser) await browser.close();
+    try {
+      if (browser) await browser.close();
+    } catch (e) {}
   }
 }
