@@ -15,17 +15,15 @@ export default async function handler(req, res) {
     const edgePath =
       "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
-    // ✅ FIXED: robust font path (works on Vercel + local)
+    // ✅ Read font locally (works on localhost + Vercel if committed)
     const fontPath = path.resolve("./public/fonts/Amiri-Regular.ttf");
-
-    // ✅ Make sure font exists (helps debugging)
     if (!fs.existsSync(fontPath)) {
       throw new Error(`Font not found at: ${fontPath}`);
     }
 
     const fontBase64 = fs.readFileSync(fontPath).toString("base64");
 
-    // ✅ SVG with embedded font (no missing glyphs)
+    // ✅ SVG -> PNG (Arabic will always look correct)
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="500">
         <style>
@@ -45,7 +43,6 @@ export default async function handler(req, res) {
       </svg>
     `;
 
-    // ✅ Convert SVG → PNG (guaranteed correct Arabic look)
     const pngBuffer = await sharp(Buffer.from(svg)).png().toBuffer();
     const pngBase64 = pngBuffer.toString("base64");
 
@@ -65,6 +62,9 @@ export default async function handler(req, res) {
     );
 
     const page = await browser.newPage();
+
+    // ✅ Make page stable for serverless
+    await page.setViewport({ width: 1200, height: 800 });
 
     const html = `
       <!doctype html>
@@ -90,12 +90,23 @@ export default async function handler(req, res) {
         </head>
         <body>
           <img id="arabicImg" src="data:image/png;base64,${pngBase64}" />
+          <script>
+            // mark ready when image fully loads
+            const img = document.getElementById("arabicImg");
+            img.onload = () => { window.__IMG_READY__ = true; };
+          </script>
         </body>
       </html>
     `;
 
     await page.setContent(html, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("#arabicImg");
+
+    // ✅ THIS IS THE MAIN FIX: wait until image is loaded
+    await page.waitForFunction(() => window.__IMG_READY__ === true, {
+      timeout: 10000,
+    });
+
+    // extra tiny delay for Vercel Chromium
     await new Promise((r) => setTimeout(r, 200));
 
     const pdfBuffer = await page.pdf({
