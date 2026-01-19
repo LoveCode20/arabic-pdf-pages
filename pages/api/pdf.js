@@ -82,21 +82,36 @@ export default async function handler(req, res) {
 
     await page.setContent(html, { waitUntil: "domcontentloaded" });
 
-    // ✅ Wait for font to load properly (important on Vercel)
+    // ✅ Wait for fonts to load properly (important on Vercel)
     await page.evaluate(async () => {
       await document.fonts.ready;
     });
 
     // ✅ Make sure fonts are fully loaded
     await page.waitForFunction(() => document.fonts.status === "loaded", {
-      timeout: 5000,
+      timeout: 10000,
     });
 
     // Ensure text exists
-    await page.waitForSelector("#arabicText");
+    await page.waitForSelector("#arabicText", { timeout: 10000 });
+
+    // ✅ FORCE FONT TO APPLY (THIS IS THE REAL FIX)
+    // This makes Chromium actually use the font before printing
+    await page.evaluate(() => {
+      const el = document.getElementById("arabicText");
+      if (!el) return;
+
+      // Force layout calculation
+      const rect = el.getBoundingClientRect();
+
+      // Force font usage by measuring width
+      const width = rect.width;
+
+      return width;
+    });
 
     // Tiny delay (safer than page.waitForTimeout)
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await new Promise((resolve) => setTimeout(resolve, 400));
 
     const pdfBuffer = await page.pdf({
       format: "A4",
@@ -107,7 +122,6 @@ export default async function handler(req, res) {
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", 'attachment; filename="arabic.pdf"');
 
-    // ✅ IMPORTANT: don't return object/value
     res.status(200).end(pdfBuffer);
   } catch (err) {
     console.log("PDF error:", err);
